@@ -72,6 +72,16 @@ struct gdigrab {
 
 #define REGION_WND_BORDER 3
 
+typedef struct
+{
+	HWND    hwndWindow;
+	DWORD   dwProcessID;
+}EnumWindowsArg;
+
+BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam);
+
+HWND GetWindowHandleFromProcessId(DWORD targetProcessId);
+
 /**
  * Callback to handle Windows messages for the region outline window.
  *
@@ -260,6 +270,23 @@ gdigrab_read_header(AVFormatContext *s1)
 
         hwnd = FindWindowW(NULL, name_w);
         av_freep(&name_w);
+        if (!hwnd) {
+            av_log(s1, AV_LOG_ERROR,
+                   "Can't find window '%s', aborting.\n", name);
+            ret = AVERROR(EIO);
+            goto error;
+        }
+        if (gdigrab->show_region) {
+            av_log(s1, AV_LOG_WARNING,
+                    "Can't show region when grabbing a window.\n");
+            gdigrab->show_region = 0;
+        }
+    } else if (!strncmp(filename, "pid=", 4)) {
+        DWORD pid = atoi(filename + 4);
+        hwnd = GetWindowHandleFromProcessId(pid);
+        name = filename + 4;
+        av_log(s1, AV_LOG_INFO,
+                    "Get Window Handle with process id '%s'. \n", name);        
         if (!hwnd) {
             av_log(s1, AV_LOG_ERROR,
                    "Can't find window '%s', aborting.\n", name);
@@ -588,7 +615,7 @@ static int gdigrab_read_packet(AVFormatContext *s1, AVPacket *pkt)
                 clip_rect.right - clip_rect.left,
                 clip_rect.bottom - clip_rect.top,
                 source_hdc,
-                clip_rect.left, clip_rect.top, SRCCOPY | CAPTUREBLT)) {
+                clip_rect.left, clip_rect.top, SRCCOPY)) {
         WIN32_API_ERROR("Failed to capture image");
         return AVERROR(EIO);
     }
@@ -641,6 +668,38 @@ static int gdigrab_read_close(AVFormatContext *s1)
         DeleteDC(s->source_hdc);
 
     return 0;
+}
+
+BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam)
+{
+	EnumWindowsArg* pArg = (EnumWindowsArg*)lParam;
+	DWORD processId = 0;
+	GetWindowThreadProcessId(hwnd, &processId);
+
+	if (processId == pArg->dwProcessID)
+	{
+		pArg->hwndWindow = hwnd;
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
+HWND GetWindowHandleFromProcessId(DWORD targetProcessId)
+{
+	HWND hwndRet = NULL;
+	EnumWindowsArg ewa;
+	ewa.dwProcessID = targetProcessId;
+	ewa.hwndWindow = NULL;
+
+	EnumWindows(EnumWindowsProc, (LPARAM)&ewa);
+
+	if(ewa.hwndWindow)
+	{
+		hwndRet = ewa.hwndWindow;
+	}
+
+	return hwndRet;
 }
 
 #define OFFSET(x) offsetof(struct gdigrab, x)
