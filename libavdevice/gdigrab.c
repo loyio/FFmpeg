@@ -41,28 +41,29 @@
 struct gdigrab {
     const AVClass *class;   /**< Class for private options */
 
-    int        frame_size;  /**< Size in bytes of the frame pixel data */
-    int        header_size; /**< Size in bytes of the DIB header */
-    AVRational time_base;   /**< Time base */
-    int64_t    time_frame;  /**< Current time */
+    int             frame_size;  /**< Size in bytes of the frame pixel data */
+    int             header_size; /**< Size in bytes of the DIB header */
+    AVRational      time_base;   /**< Time base */
+    int64_t         time_frame;  /**< Current time */
 
-    int        draw_mouse;  /**< Draw mouse cursor (private option) */
-    int        show_region; /**< Draw border (private option) */
-    AVRational framerate;   /**< Capture framerate (private option) */
-    int        width;       /**< Width of the grab frame (private option) */
-    int        height;      /**< Height of the grab frame (private option) */
-    int        offset_x;    /**< Capture x offset (private option) */
-    int        offset_y;    /**< Capture y offset (private option) */
+    int             draw_mouse;  /**< Draw mouse cursor (private option) */
+    int             show_region; /**< Draw border (private option) */
+    unsigned int    validate_handle; /**< Validation of the window Handle (private option) */
+    AVRational      framerate;   /**< Capture framerate (private option) */
+    int             width;       /**< Width of the grab frame (private option) */
+    int             height;      /**< Height of the grab frame (private option) */
+    int             offset_x;    /**< Capture x offset (private option) */
+    int             offset_y;    /**< Capture y offset (private option) */
 
-    HWND       hwnd;        /**< Handle of the window for the grab */
-    HDC        source_hdc;  /**< Source device context */
-    HDC        dest_hdc;    /**< Destination, source-compatible DC */
-    BITMAPINFO bmi;         /**< Information describing DIB format */
-    HBITMAP    hbmp;        /**< Information on the bitmap captured */
-    void      *buffer;      /**< The buffer containing the bitmap image data */
-    RECT       clip_rect;   /**< The subarea of the screen or window to clip */
+    HWND            hwnd;        /**< Handle of the window for the grab */
+    HDC             source_hdc;  /**< Source device context */
+    HDC             dest_hdc;    /**< Destination, source-compatible DC */
+    BITMAPINFO      bmi;         /**< Information describing DIB format */
+    HBITMAP         hbmp;        /**< Information on the bitmap captured */
+    void            *buffer;      /**< The buffer containing the bitmap image data */
+    RECT            clip_rect;   /**< The subarea of the screen or window to clip */
 
-    HWND       region_hwnd; /**< Handle of the region border window */
+    HWND            region_hwnd; /**< Handle of the region border window */
 
     int cursor_error_printed;
 };
@@ -71,6 +72,17 @@ struct gdigrab {
     av_log(s1, AV_LOG_ERROR, str " (error %li)\n", GetLastError())
 
 #define REGION_WND_BORDER 3
+
+typedef struct
+{
+    HWND            hwndWindow;
+    DWORD           dwProcessID;
+    unsigned int    validationHandle;
+}EnumWindowsArg;
+
+BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam);
+
+HWND GetWindowHandleFromProcessId(DWORD targetProcessId, unsigned int targetWindowHandle);
 
 /**
  * Callback to handle Windows messages for the region outline window.
@@ -260,6 +272,23 @@ gdigrab_read_header(AVFormatContext *s1)
 
         hwnd = FindWindowW(NULL, name_w);
         av_freep(&name_w);
+        if (!hwnd) {
+            av_log(s1, AV_LOG_ERROR,
+                   "Can't find window '%s', aborting.\n", name);
+            ret = AVERROR(EIO);
+            goto error;
+        }
+        if (gdigrab->show_region) {
+            av_log(s1, AV_LOG_WARNING,
+                    "Can't show region when grabbing a window.\n");
+            gdigrab->show_region = 0;
+        }
+    } else if (!strncmp(filename, "pid=", 4)) {
+        DWORD pid = atoi(filename + 4);
+        hwnd = GetWindowHandleFromProcessId(pid, gdigrab->validate_handle);
+        name = filename + 4;
+        av_log(s1, AV_LOG_INFO,
+                    "Get Window Handle with process id '%s'. \n", name);        
         if (!hwnd) {
             av_log(s1, AV_LOG_ERROR,
                    "Can't find window '%s', aborting.\n", name);
@@ -588,7 +617,7 @@ static int gdigrab_read_packet(AVFormatContext *s1, AVPacket *pkt)
                 clip_rect.right - clip_rect.left,
                 clip_rect.bottom - clip_rect.top,
                 source_hdc,
-                clip_rect.left, clip_rect.top, SRCCOPY | CAPTUREBLT)) {
+                clip_rect.left, clip_rect.top, SRCCOPY)) {
         WIN32_API_ERROR("Failed to capture image");
         return AVERROR(EIO);
     }
@@ -643,11 +672,48 @@ static int gdigrab_read_close(AVFormatContext *s1)
     return 0;
 }
 
+BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam)
+{
+	EnumWindowsArg* pArg = (EnumWindowsArg*)lParam;
+	DWORD processId = 0;
+	GetWindowThreadProcessId(hwnd, &processId);
+
+	if (processId == pArg->dwProcessID)
+	{
+		if((unsigned int)hwnd == pArg->validationHandle)
+		{
+			pArg->hwndWindow = hwnd;
+			return FALSE;
+		}
+	}
+
+	return TRUE;
+}
+
+HWND GetWindowHandleFromProcessId(DWORD targetProcessId, unsigned int targetWindowHandle)
+{
+	HWND hwndRet = NULL;
+	EnumWindowsArg ewa;
+	ewa.dwProcessID = targetProcessId;
+	ewa.hwndWindow = NULL;
+    ewa.validationHandle = targetWindowHandle;
+
+	EnumWindows(EnumWindowsProc, (LPARAM)&ewa);
+
+	if(ewa.hwndWindow)
+	{
+		hwndRet = ewa.hwndWindow;
+	}
+
+	return hwndRet;
+}
+
 #define OFFSET(x) offsetof(struct gdigrab, x)
 #define DEC AV_OPT_FLAG_DECODING_PARAM
 static const AVOption options[] = {
     { "draw_mouse", "draw the mouse pointer", OFFSET(draw_mouse), AV_OPT_TYPE_INT, {.i64 = 1}, 0, 1, DEC },
     { "show_region", "draw border around capture area", OFFSET(show_region), AV_OPT_TYPE_INT, {.i64 = 0}, 0, 1, DEC },
+    { "validate_handle", "the client window handle", OFFSET(validate_handle), AV_OPT_TYPE_UINT64, {.i64 = 0}, 0, UINT64_MAX, DEC },
     { "framerate", "set video frame rate", OFFSET(framerate), AV_OPT_TYPE_VIDEO_RATE, {.str = "ntsc"}, 0, INT_MAX, DEC },
     { "video_size", "set video frame size", OFFSET(width), AV_OPT_TYPE_IMAGE_SIZE, {.str = NULL}, 0, 0, DEC },
     { "offset_x", "capture area x offset", OFFSET(offset_x), AV_OPT_TYPE_INT, {.i64 = 0}, INT_MIN, INT_MAX, DEC },
