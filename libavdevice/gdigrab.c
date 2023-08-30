@@ -48,12 +48,12 @@ struct gdigrab {
 
     int             draw_mouse;  /**< Draw mouse cursor (private option) */
     int             show_region; /**< Draw border (private option) */
-    unsigned int    validate_handle; /**< Validation of the window Handle (private option) */
     AVRational      framerate;   /**< Capture framerate (private option) */
     int             width;       /**< Width of the grab frame (private option) */
     int             height;      /**< Height of the grab frame (private option) */
     int             offset_x;    /**< Capture x offset (private option) */
     int             offset_y;    /**< Capture y offset (private option) */
+    unsigned int    validate_handle; /**< Validation of the window Handle (private option) */
 
     HWND            hwnd;        /**< Handle of the window for the grab */
     HDC             source_hdc;  /**< Source device context */
@@ -713,11 +713,11 @@ HWND GetWindowHandleFromProcessId(DWORD targetProcessId, unsigned int targetWind
 static const AVOption options[] = {
     { "draw_mouse", "draw the mouse pointer", OFFSET(draw_mouse), AV_OPT_TYPE_INT, {.i64 = 1}, 0, 1, DEC },
     { "show_region", "draw border around capture area", OFFSET(show_region), AV_OPT_TYPE_INT, {.i64 = 0}, 0, 1, DEC },
-    { "validate_handle", "the client window handle", OFFSET(validate_handle), AV_OPT_TYPE_UINT64, {.i64 = 0}, 0, UINT64_MAX, DEC },
     { "framerate", "set video frame rate", OFFSET(framerate), AV_OPT_TYPE_VIDEO_RATE, {.str = "ntsc"}, 0, INT_MAX, DEC },
     { "video_size", "set video frame size", OFFSET(width), AV_OPT_TYPE_IMAGE_SIZE, {.str = NULL}, 0, 0, DEC },
     { "offset_x", "capture area x offset", OFFSET(offset_x), AV_OPT_TYPE_INT, {.i64 = 0}, INT_MIN, INT_MAX, DEC },
     { "offset_y", "capture area y offset", OFFSET(offset_y), AV_OPT_TYPE_INT, {.i64 = 0}, INT_MIN, INT_MAX, DEC },
+    { "validate_handle", "the client window handle", OFFSET(validate_handle), AV_OPT_TYPE_UINT64, {.i64 = 0}, 0, UINT64_MAX, DEC },
     { NULL },
 };
 
